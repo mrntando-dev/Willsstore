@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="admin-dashboard">
+        <h1>Admin Dashboard</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Your Total Earnings</h3>
+                <p class="stat-value">${{ "%.2f"|format(earnings.total_earnings) }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Total Users</h3>
+                <p class="stat-value">{{ total_users }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Active Sharers</h3>
+                <p class="stat-value">{{ total_sharers }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Active Sessions</h3>
+                <p class="stat-value">{{ active_sessions }}</p>
+            </div>
+        </div>
+
+        <div class="recent-transactions">
+            <h2>Recent Transactions</h2>
+            <table class="transactions-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>User</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in transactions %}
+                    <tr>
+                        <td>{{ transaction.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ transaction.user.email }}</td>
+                        <td>{{ transaction.type }}</td>
+                        <td>${{ "%.2f"|format(transaction.amount) }}</td>
+                        <td>{{ transaction.description }}</td>
+                        <td><span class="status-{{ transaction.status }}">{{ transaction.status }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
