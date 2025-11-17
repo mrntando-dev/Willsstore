@@ -4,9 +4,9 @@
 <div class="container">
     <div class="connect-section">
         <h1>Connect to Internet</h1>
-        <p>Your Tokens: {{ "%.2f"|format(user_tokens) }} GB</p>
+        <p>Your Tokens: {{ "%.2f"|format(current_user.tokens) }} GB</p>
 
-        {% if user_tokens <= 0 %}
+        {% if current_user.tokens <= 0 %}
         <div class="alert alert-warning">
             <p>You don't have enough tokens. Purchase a package below.</p>
         </div>
@@ -33,33 +33,35 @@
             </form>
         </div>
 
-        {% if user_tokens > 0 %}
+        {% if current_user.tokens > 0 %}
         <div class="connection-form">
             <h2>Or Enter Connection Code</h2>
-            <form method="POST">
+            <form method="POST" action="{{ url_for('connect') }}">
                 <input type="text" name="connection_token" placeholder="Enter connection code" required>
                 <button type="submit" class="btn btn-secondary">Connect</button>
             </form>
         </div>
 
-        {% if sessions %}
         <div class="available-hotspots">
             <h2>Available Hotspots</h2>
             <p class="privacy-note">🔒 All connections are anonymous</p>
+            {% if sessions %}
             <div class="hotspot-list">
                 {% for session in sessions %}
                 <div class="hotspot-card">
                     <p>Hotspot #{{ loop.index }}</p>
                     <p class="signal">Signal: Strong</p>
-                    <form method="POST" style="display: inline;">
+                    <form method="POST" action="{{ url_for('connect') }}" style="display: inline;">
                         <input type="hidden" name="connection_token" value="{{ session.connection_token }}">
                         <button type="submit" class="btn btn-small">Connect</button>
                     </form>
                 </div>
                 {% endfor %}
             </div>
+            {% else %}
+            <p>No hotspots available at the moment. Be the first to share!</p>
+            {% endif %}
         </div>
-        {% endif %}
         {% endif %}
     </div>
 </div>
