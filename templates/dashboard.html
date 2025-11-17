@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="dashboard">
+        <h1>Welcome, {{ current_user.email }}</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Your Tokens</h3>
+                <p class="stat-value">{{ "%.2f"|format(current_user.tokens) }} GB</p>
+            </div>
+            {% if current_user.is_sharer %}
+            <div class="stat-card">
+                <h3>Your Earnings</h3>
+                <p class="stat-value">${{ "%.2f"|format(current_user.earnings) }}</p>
+            </div>
+            {% endif %}
+            <div class="stat-card">
+                <h3>Active Sessions</h3>
+                <p class="stat-value">{{ active_sessions|length }}</p>
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="{{ url_for('share') }}" class="btn btn-primary">Start Sharing</a>
+            <a href="{{ url_for('connect') }}" class="btn btn-secondary">Connect to Internet</a>
+        </div>
+
+        {% if active_sessions %}
+        <div class="active-sessions">
+            <h2>Active Sessions</h2>
+            {% for session in active_sessions %}
+            <div class="session-card">
+                <p>Data Used: {{ "%.2f"|format(session.data_used_mb / 1024) }} GB</p>
+                <p>Started: {{ session.started_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="recent-transactions">
+            <h2>Recent Transactions</h2>
+            {% if transactions %}
+                <table class="transactions-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for transaction in transactions %}
+                        <tr>
+                            <td>{{ transaction.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>{{ transaction.type }}</td>
+                            <td>{{ transaction.description }}</td>
+                            <td>${{ "%.2f"|format(transaction.amount) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No transactions yet</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
