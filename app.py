@@ -4,14 +4,19 @@ from models import db, User, SharingSession, Transaction, AdminEarnings
 from config import Config
 import os
 from datetime import datetime
+import logging
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
+login_manager.login_view = 'index'
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -19,18 +24,27 @@ def load_user(user_id):
 
 # Create tables
 with app.app_context():
-    db.create_all()
-    # Initialize admin earnings if not exists
-    if not AdminEarnings.query.first():
-        admin_earnings = AdminEarnings()
-        db.session.add(admin_earnings)
-        db.session.commit()
+    try:
+        db.create_all()
+        logger.info("Database tables created successfully")
+        
+        # Initialize admin earnings if not exists
+        if not AdminEarnings.query.first():
+            admin_earnings = AdminEarnings()
+            db.session.add(admin_earnings)
+            db.session.commit()
+            logger.info("Admin earnings initialized")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {e}")
 
 @app.route('/')
 def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
     return render_template('index.html', 
                          supported_countries=Config.SUPPORTED_COUNTRIES,
-                         packages=Config.ZIMBABWE_TOKEN_PACKAGES)
+                         packages=Config.ZIMBABWE_TOKEN_PACKAGES,
+                         config=Config)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -42,16 +56,23 @@ def register():
         
         if User.query.filter_by(email=email).first():
             flash('Email already registered', 'error')
-            return redirect(url_for('register'))
+            return redirect(url_for('index'))
         
         user = User(email=email, country=country, phone=phone)
         user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
         
-        login_user(user)
-        flash('Registration successful!', 'success')
-        return redirect(url_for('dashboard'))
+        try:
+            db.session.add(user)
+            db.session.commit()
+            
+            login_user(user)
+            flash('Registration successful!', 'success')
+            return redirect(url_for('dashboard'))
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Registration error: {e}")
+            flash('Registration failed. Please try again.', 'error')
+            return redirect(url_for('index'))
     
     return render_template('index.html')
 
@@ -64,6 +85,7 @@ def login():
     
     if user and user.check_password(password):
         login_user(user)
+        flash('Login successful!', 'success')
         return redirect(url_for('dashboard'))
     
     flash('Invalid email or password', 'error')
@@ -73,6 +95,7 @@ def login():
 @login_required
 def logout():
     logout_user()
+    flash('Logged out successfully', 'success')
     return redirect(url_for('index'))
 
 @app.route('/dashboard')
@@ -83,20 +106,25 @@ def dashboard():
                              country=current_user.country,
                              message=Config.COMING_SOON_MESSAGE)
     
-    active_sessions = SharingSession.query.filter_by(
-        user_id=current_user.id, 
-        is_active=True
-    ).all()
-    
-    recent_transactions = Transaction.query.filter_by(
-        user_id=current_user.id
-    ).order_by(Transaction.created_at.desc()).limit(10).all()
-    
-    return render_template('dashboard.html', 
-                         user=current_user,
-                         active_sessions=active_sessions,
-                         transactions=recent_transactions,
-                         packages=Config.ZIMBABWE_TOKEN_PACKAGES)
+    try:
+        active_sessions = SharingSession.query.filter_by(
+            user_id=current_user.id, 
+            is_active=True
+        ).all()
+        
+        recent_transactions = Transaction.query.filter_by(
+            user_id=current_user.id
+        ).order_by(Transaction.created_at.desc()).limit(10).all()
+        
+        return render_template('dashboard.html', 
+                             user=current_user,
+                             active_sessions=active_sessions,
+                             transactions=recent_transactions,
+                             packages=Config.ZIMBABWE_TOKEN_PACKAGES)
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        flash('Error loading dashboard', 'error')
+        return redirect(url_for('index'))
 
 @app.route('/share')
 @login_required
@@ -105,19 +133,25 @@ def share():
         flash('Service not available in your country yet', 'error')
         return redirect(url_for('dashboard'))
     
-    # Create sharing session
-    session = SharingSession(sharer_id=current_user.id)
-    db.session.add(session)
-    
-    # Mark user as sharer
-    if not current_user.is_sharer:
-        current_user.is_sharer = True
-    
-    db.session.commit()
-    
-    return render_template('share.html', 
-                         session=session,
-                         earnings_per_gb=Config.SHARER_EARNINGS_PER_GB)
+    try:
+        # Create sharing session
+        session = SharingSession(sharer_id=current_user.id)
+        db.session.add(session)
+        
+        # Mark user as sharer
+        if not current_user.is_sharer:
+            current_user.is_sharer = True
+        
+        db.session.commit()
+        
+        return render_template('share.html', 
+                             session=session,
+                             earnings_per_gb=Config.SHARER_EARNINGS_PER_GB)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Share error: {e}")
+        flash('Error creating sharing session', 'error')
+        return redirect(url_for('dashboard'))
 
 @app.route('/connect', methods=['GET', 'POST'])
 @login_required
@@ -129,46 +163,58 @@ def connect():
     if request.method == 'POST':
         connection_token = request.form.get('connection_token')
         
-        session = SharingSession.query.filter_by(
-            connection_token=connection_token,
-            is_active=True
-        ).first()
-        
-        if not session:
-            flash('Invalid connection code', 'error')
+        try:
+            session = SharingSession.query.filter_by(
+                connection_token=connection_token,
+                is_active=True
+            ).first()
+            
+            if not session:
+                flash('Invalid connection code', 'error')
+                return redirect(url_for('connect'))
+            
+            if current_user.tokens <= 0:
+                flash('Insufficient tokens. Please purchase tokens first.', 'error')
+                return redirect(url_for('connect'))
+            
+            # Connect user to session
+            session.user_id = current_user.id
+            db.session.commit()
+            
+            flash('Connected successfully!', 'success')
+            return redirect(url_for('dashboard'))
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Connect error: {e}")
+            flash('Error connecting to hotspot', 'error')
             return redirect(url_for('connect'))
+    
+    # GET request - show available sessions
+    try:
+        available_sessions = SharingSession.query.filter_by(
+            is_active=True,
+            user_id=None
+        ).limit(10).all()
         
-        if current_user.tokens <= 0:
-            flash('Insufficient tokens. Please purchase tokens first.', 'error')
-            return redirect(url_for('buy_tokens'))
-        
-        # Connect user to session
-        session.user_id = current_user.id
-        db.session.commit()
-        
-        flash('Connected successfully!', 'success')
+        return render_template('connect.html', 
+                             sessions=available_sessions,
+                             packages=Config.ZIMBABWE_TOKEN_PACKAGES,
+                             user_tokens=current_user.tokens)
+    except Exception as e:
+        logger.error(f"Connect page error: {e}")
+        flash('Error loading connection page', 'error')
         return redirect(url_for('dashboard'))
-    
-    # Find available sessions (active sharers)
-    available_sessions = SharingSession.query.filter_by(
-        is_active=True,
-        user_id=None
-    ).limit(10).all()
-    
-    return render_template('connect.html', 
-                         sessions=available_sessions,
-                         user_tokens=current_user.tokens)
 
-@app.route('/buy-tokens', methods=['GET', 'POST'])
+@app.route('/buy-tokens', methods=['POST'])
 @login_required
 def buy_tokens():
-    if request.method == 'POST':
-        package = request.form.get('package')
-        
-        if package not in Config.ZIMBABWE_TOKEN_PACKAGES:
-            flash('Invalid package', 'error')
-            return redirect(url_for('buy_tokens'))
-        
+    package = request.form.get('package')
+    
+    if package not in Config.ZIMBABWE_TOKEN_PACKAGES:
+        flash('Invalid package', 'error')
+        return redirect(url_for('connect'))
+    
+    try:
         price = Config.ZIMBABWE_TOKEN_PACKAGES[package]
         
         # In production, integrate with payment gateway (EcoCash, Paynow, etc.)
@@ -194,7 +240,7 @@ def buy_tokens():
         
         # Add to your earnings
         admin_earnings = AdminEarnings.query.first()
-        commission = price * (Config.YOUR_COMMISSION_PER_GB / Config.TOKEN_PRICE_PER_GB)
+        commission = price * 0.5  # 50% commission for now
         admin_earnings.total_earnings += commission
         admin_earnings.total_transactions += 1
         admin_earnings.last_updated = datetime.utcnow()
@@ -203,67 +249,80 @@ def buy_tokens():
         
         flash(f'Successfully purchased {package} package!', 'success')
         return redirect(url_for('dashboard'))
-    
-    return render_template('connect.html', packages=Config.ZIMBABWE_TOKEN_PACKAGES)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Buy tokens error: {e}")
+        flash('Error processing purchase', 'error')
+        return redirect(url_for('connect'))
 
 @app.route('/api/session/<session_id>/usage', methods=['POST'])
 @login_required
 def update_usage(session_id):
     """API endpoint to update data usage"""
-    session = SharingSession.query.filter_by(session_id=session_id).first()
-    
-    if not session:
-        return jsonify({'error': 'Session not found'}), 404
-    
-    data = request.get_json()
-    data_used_mb = data.get('data_used_mb', 0)
-    
-    # Update session data usage
-    session.data_used_mb += data_used_mb
-    
-    # Deduct tokens from user
-    data_used_gb = data_used_mb / 1024
-    if session.user_id:
-        user = User.query.get(session.user_id)
-        user.tokens -= data_used_gb
+    try:
+        session = SharingSession.query.filter_by(session_id=session_id).first()
         
-        # If user runs out of tokens, disconnect
-        if user.tokens <= 0:
-            session.is_active = False
-            session.ended_at = datetime.utcnow()
-    
-    # Add earnings to sharer
-    sharer = User.query.get(session.sharer_id)
-    earnings = data_used_gb * Config.SHARER_EARNINGS_PER_GB
-    sharer.earnings += earnings
-    
-    # Add to your earnings
-    admin_earnings = AdminEarnings.query.first()
-    your_earnings = data_used_gb * Config.YOUR_COMMISSION_PER_GB
-    admin_earnings.total_earnings += your_earnings
-    admin_earnings.last_updated = datetime.utcnow()
-    
-    db.session.commit()
-    
-    return jsonify({'success': True, 'data_used_gb': data_used_gb})
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        data = request.get_json()
+        data_used_mb = data.get('data_used_mb', 0)
+        
+        # Update session data usage
+        session.data_used_mb += data_used_mb
+        
+        # Deduct tokens from user
+        data_used_gb = data_used_mb / 1024
+        if session.user_id:
+            user = User.query.get(session.user_id)
+            user.tokens -= data_used_gb
+            
+            # If user runs out of tokens, disconnect
+            if user.tokens <= 0:
+                session.is_active = False
+                session.ended_at = datetime.utcnow()
+        
+        # Add earnings to sharer
+        sharer = User.query.get(session.sharer_id)
+        earnings = data_used_gb * Config.SHARER_EARNINGS_PER_GB
+        sharer.earnings += earnings
+        
+        # Add to your earnings
+        admin_earnings = AdminEarnings.query.first()
+        your_earnings = data_used_gb * Config.YOUR_COMMISSION_PER_GB
+        admin_earnings.total_earnings += your_earnings
+        admin_earnings.last_updated = datetime.utcnow()
+        
+        db.session.commit()
+        
+        return jsonify({'success': True, 'data_used_gb': data_used_gb})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Update usage error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/session/<session_id>/stop', methods=['POST'])
 @login_required
 def stop_session(session_id):
     """Stop sharing session"""
-    session = SharingSession.query.filter_by(
-        session_id=session_id,
-        sharer_id=current_user.id
-    ).first()
-    
-    if not session:
-        return jsonify({'error': 'Session not found'}), 404
-    
-    session.is_active = False
-    session.ended_at = datetime.utcnow()
-    db.session.commit()
-    
-    return jsonify({'success': True})
+    try:
+        session = SharingSession.query.filter_by(
+            session_id=session_id,
+            sharer_id=current_user.id
+        ).first()
+        
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session.is_active = False
+        session.ended_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Stop session error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/admin')
 @login_required
@@ -273,21 +332,36 @@ def admin():
         flash('Unauthorized access', 'error')
         return redirect(url_for('dashboard'))
     
-    admin_earnings = AdminEarnings.query.first()
-    total_users = User.query.count()
-    total_sharers = User.query.filter_by(is_sharer=True).count()
-    active_sessions = SharingSession.query.filter_by(is_active=True).count()
-    
-    recent_transactions = Transaction.query.order_by(
-        Transaction.created_at.desc()
-    ).limit(20).all()
-    
-    return render_template('admin.html',
-                         earnings=admin_earnings,
-                         total_users=total_users,
-                         total_sharers=total_sharers,
-                         active_sessions=active_sessions,
-                         transactions=recent_transactions)
+    try:
+        admin_earnings = AdminEarnings.query.first()
+        total_users = User.query.count()
+        total_sharers = User.query.filter_by(is_sharer=True).count()
+        active_sessions = SharingSession.query.filter_by(is_active=True).count()
+        
+        recent_transactions = Transaction.query.order_by(
+            Transaction.created_at.desc()
+        ).limit(20).all()
+        
+        return render_template('admin.html',
+                             earnings=admin_earnings,
+                             total_users=total_users,
+                             total_sharers=total_sharers,
+                             active_sessions=active_sessions,
+                             transactions=recent_transactions)
+    except Exception as e:
+        logger.error(f"Admin dashboard error: {e}")
+        flash('Error loading admin dashboard', 'error')
+        return redirect(url_for('dashboard'))
+
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return render_template('500.html'), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
