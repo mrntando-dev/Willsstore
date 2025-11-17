@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="share-section">
+        <h1>Share Your Internet</h1>
+        <p>You earn ${{ "%.2f"|format(earnings_per_gb) }} per GB shared</p>
+
+        <div class="connection-info">
+            <h2>Connection Code</h2>
+            <div class="connection-token">
+                <input type="text" value="{{ session.connection_token }}" id="connectionToken" readonly>
+                <button onclick="copyToken()" class="btn btn-secondary">Copy</button>
+            </div>
+            <p class="help-text">Share this code with users who want to connect</p>
+        </div>
+
+        <div class="session-stats" id="sessionStats">
+            <h3>Session Statistics</h3>
+            <p>Data Shared: <span id="dataShared">0.00</span> GB</p>
+            <p>Earnings: $<span id="earnings">0.00</span></p>
+            <p>Status: <span class="status-active">Active</span></p>
+        </div>
+
+        <button onclick="stopSharing()" class="btn btn-danger">Stop Sharing</button>
+    </div>
+</div>
+
+<script>
+const sessionId = "{{ session.session_id }}";
+let dataShared = 0;
+
+function copyToken() {
+    const token = document.getElementById('connectionToken');
+    token.select();
+    document.execCommand('copy');
+    alert('Connection code copied!');
+}
+
+function stopSharing() {
+    if (confirm('Are you sure you want to stop sharing?')) {
+        fetch(`/api/session/${sessionId}/stop`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                window.location.href = "{{ url_for('dashboard') }}";
+            }
+        });
+    }
+}
+
+// Simulate data usage updates (in production, this would be real network monitoring)
+setInterval(() => {
+    const newData = Math.random() * 10; // Random MB
+    dataShared += newData;
+    
+    fetch(`/api/session/${sessionId}/usage`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            data_used_mb: newData
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('dataShared').textContent = (dataShared / 1024).toFixed(2);
+        document.getElementById('earnings').textContent = ((dataShared / 1024) * {{ earnings_per_gb }}).toFixed(2);
+    });
+}, 10000); // Update every 10 seconds
+</script>
+{% endblock %}
