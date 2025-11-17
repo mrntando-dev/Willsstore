@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="coming-soon">
+        <h1>🌍 Coming Soon to {{ country }}</h1>
+        <p>{{ message }}</p>
+        <p>WillsShareStore is currently available in Zimbabwe.</p>
+        <p>We're working hard to bring our service to your country soon!</p>
+        
+        <div class="notify-form">
+            <h3>Get notified when we launch</h3>
+            <form>
+                <input type="email" placeholder="Your email" required>
+                <button type="submit" class="btn btn-primary">Notify Me</button>
+            </form>
+        </div>
+        
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}
