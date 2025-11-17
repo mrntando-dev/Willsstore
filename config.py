@@ -3,8 +3,18 @@ from datetime import timedelta
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-change-in-production'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///willsshare.db'
+    
+    # Fix PostgreSQL URL format
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url and database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    SQLALCHEMY_DATABASE_URI = database_url or 'postgresql://ntando_user:hE9jYl2QVozF7iURwVXqr1gTsFLftbiP@dpg-d4djg0jipnbc73a3tq80-a/ntando'
+    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+    }
     
     # Token pricing
     TOKEN_PRICE_PER_GB = 0.50  # USD per GB
